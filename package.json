@@ -1,0 +1,26 @@
+{
+  "name": "slack-recent-switcher",
+  "version": "0.5.0",
+  "private": true,
+  "description": "A macOS, Linux, and Windows Slack Electron patch for recent conversations and custom search",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fazulk/slack-recent-switcher.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "test:electron": "node scripts/test-electron.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
+    "install:slack": "node scripts/install.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@electron/asar": "4.3.0",
+    "pe-library": "2.0.1"
+  }
+}
