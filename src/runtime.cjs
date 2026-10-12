@@ -171,6 +171,19 @@ module.exports = function install({ app, webContents, ipcMain, Menu, BrowserWind
         return;
       }
       if (pendingSearch.has(contents.id) && input.type === 'keyDown' && !input.isComposing) {
+        if (input.key === 'Escape') {
+          event.preventDefault();
+          pendingSearch.delete(contents.id);
+          const search = customSearch.get(contents.id);
+          // Escape can beat even the panel mount. Keep cancellation after that mount,
+          // and let the panel dismiss Slack's editor if it arrives later.
+          paintQueue = paintQueue.then(() => {
+            if (!contents.isDestroyed() && customSearch.get(contents.id) === search) {
+              return contents.executeJavaScript('window.__slackRecentsSearchClose?.()');
+            }
+          }).catch(error => console.warn('[Slack Recents] Search close:', error.message));
+          return;
+        }
         // Slack's search box is still opening. Hold typed characters instead of letting them
         // reach the page (where they would be lost or land in the message composer).
         const typed = pendingSearch.get(contents.id);

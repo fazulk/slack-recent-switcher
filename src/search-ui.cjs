@@ -15,6 +15,7 @@ module.exports = function mountSearch(render, initial) {
   let queryText = '';
   let scheduled = false;
   let closed = false;
+  let closing = false;
   const marked = [];
   const signal = detail => window.dispatchEvent(new CustomEvent('slack-recents:search-ui', { detail: JSON.stringify(detail) }));
   const style = document.createElement('style');
@@ -62,7 +63,7 @@ module.exports = function mountSearch(render, initial) {
     query.style.setProperty('--sr-width', `${rect.width}px`);
   }
   function redraw() {
-    if (closed) return;
+    if (closed || closing) return;
     queryText = text();
     nativeRows = query && dialog ? [...dialog.querySelectorAll('[role="option"]')] : [];
     let selected = nativeRows.findIndex(row => row.getAttribute('aria-selected') === 'true');
@@ -91,6 +92,11 @@ module.exports = function mountSearch(render, initial) {
     if (found && found !== query) {
       query = found;
       dialog = query.closest('[role="dialog"]') || query.parentElement;
+      if (closing) {
+        // Escape may arrive before Slack creates its editor. Close it as soon as it appears.
+        query.focus(); signal({ type: 'close' });
+        return;
+      }
       query.setAttribute('data-slack-recents-query', '');
       for (let node = query.parentElement; node && node !== document.body; node = node.parentElement) {
         node.classList.add('sr-search-path'); marked.push(node);
@@ -115,7 +121,22 @@ module.exports = function mountSearch(render, initial) {
     if (queryText) nativeRows[index]?.click();
     else if (visible[index]) signal({ type: 'pick', key: visible[index].key });
   }
+  function close() {
+    if (closed || closing) return;
+    closing = true;
+    render(null);
+    if (query) {
+      // Slack handles Escape on its editor; restore focus if it moved elsewhere.
+      query.focus(); signal({ type: 'close' });
+    }
+  }
   function keydown(event) {
+    if (!closing && event.key === 'Escape' && !event.isComposing) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      close(); return;
+    }
+    // Let the Escape sent by the main process reach Slack's own close handler.
+    if (closing) return;
     if (!query || event.isComposing) return;
     if (text() && event.key === 'Enter' && fallbackIndex >= 0) {
       // Slack has nothing selected, so Enter would ignore the row we highlighted. Open that row instead.
@@ -138,7 +159,7 @@ module.exports = function mountSearch(render, initial) {
   function click(event) {
     const row = event.target.closest?.('.row');
     if (row) pick(Number(row.dataset.index));
-    else if (event.target.classList?.contains('backdrop')) signal({ type: 'close' });
+    else if (event.target.classList?.contains('backdrop')) close();
     else query?.focus();
   }
   function cleanup() {
@@ -153,9 +174,11 @@ module.exports = function mountSearch(render, initial) {
     for (const node of marked) node.classList.remove('sr-search-path', 'sr-search-top');
     style.remove(); render(null);
     window.__slackRecentsSearchCleanup = undefined;
+    window.__slackRecentsSearchClose = undefined;
     signal({ type: 'closed' });
   }
   window.__slackRecentsSearchCleanup = cleanup;
+  window.__slackRecentsSearchClose = close;
   window.addEventListener('keydown', keydown, true);
   window.addEventListener('resize', position);
   const startupTimeout = setTimeout(() => { if (!query) { cleanup(); signal({ type: 'unavailable' }); } }, 5000);

@@ -39,6 +39,13 @@ async function release() {
 async function checkOverlay() {
   return window.webContents.executeJavaScript(`(() => { const host=document.getElementById('slack-recent-switcher-overlay'); return host ? {text:host.shadowRoot.textContent, selected:host.shadowRoot.querySelector('[aria-selected="true"] .name')?.textContent, rows:[...host.shadowRoot.querySelectorAll('.row')].map(r=>r.querySelector('.name').textContent+(r.querySelector('.unread')?' ['+r.querySelector('.unread').textContent+']':''))} : null; })()`);
 }
+async function waitForOverlay() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (await checkOverlay()) return;
+    await delay(50); await runtime.painted();
+  }
+  assert.fail('The held-shortcut overlay did not appear');
+}
 app.whenReady().then(async () => {
   // Serve the fixture locally through Electron; no requests go to Slack.
   session.defaultSession.protocol.handle('https', () => new Response('<!doctype html><html><head><meta charset="utf-8"><title>general - Acme - Slack</title><style>body{font:16px -apple-system;background:#efedf4;padding:50px;color:#61566f}h1{color:#302738}</style></head><body><small>Slack Recents · isolated integration fixture</small><h1>general</h1><p>The switcher runs in Slack’s Electron 44 runtime.</p><textarea placeholder="Draft message"></textarea></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }));
@@ -58,6 +65,10 @@ app.whenReady().then(async () => {
     }
     document.body.append(sidebar);
     window.showFixtureSearch = () => {
+      if (window.fixtureSearchDelay) {
+        const delay = window.fixtureSearchDelay; window.fixtureSearchDelay = 0;
+        setTimeout(window.showFixtureSearch, delay); return;
+      }
       const dialog = document.createElement('section'); dialog.id='native-search-fixture'; dialog.setAttribute('role','dialog');
       const input = document.createElement('input'); input.setAttribute('role','combobox'); input.dataset.feat='qs';
       const list = document.createElement('ol'); list.setAttribute('role','listbox');
@@ -80,7 +91,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(runtime.recents.items.map(x => x.channel), ['G333', 'D222', 'C111']);
   await window.webContents.executeJavaScript("document.querySelector('textarea').focus();document.querySelector('textarea').value='Unsent draft stays intact'");
   input('keyDown', modifierKey, [modifier]); await k();
-  await delay(160); await runtime.painted();
+  await waitForOverlay();
   assert.equal((await checkOverlay()).selected, 'Alex Morgan');
   assert.equal(nativeShortcutCount, 0);
   await k(); assert.equal((await checkOverlay()).selected, 'general');
@@ -93,7 +104,7 @@ app.whenReady().then(async () => {
   assert.match(window.webContents.getURL(), /\/D222$/);
   assert.equal(await window.webContents.executeJavaScript("document.querySelector('textarea').value"), 'Unsent draft stays intact');
   input('keyDown', modifierKey, [modifier]); await k();
-  await delay(160); await runtime.painted();
+  await waitForOverlay();
   assert.equal((await checkOverlay()).selected, 'design-team');
   input('keyDown', 'Escape', [modifier]); await release(); assert.equal(navigations.length, 1);
   // A quick tap keeps our panel open, with Slack's own editor and hidden results.
@@ -156,8 +167,34 @@ app.whenReady().then(async () => {
   input('keyDown', 'Escape'); input('keyUp', 'Escape');
   assert.equal(await checkOverlay(), null); assert.equal(nativeShortcutCount, 0);
   assert.equal(await window.webContents.executeJavaScript('window.pageShortcutCount'), 0);
+  // Cancellation must work even if focus moved away from Slack's native search input.
+  input('keyDown', 'K', [modifier]); input('keyUp', 'K', [modifier]); await release();
+  await window.webContents.executeJavaScript('document.querySelector("textarea").focus()');
+  input('keyDown', 'Escape'); input('keyUp', 'Escape'); await delay(100);
+  assert.equal(await checkOverlay(), null, 'Escape must close search after focus leaves its input');
+  assert.equal(await window.webContents.executeJavaScript('!!document.querySelector("#native-search-fixture")'), false);
+  assert.equal(await window.webContents.executeJavaScript('document.querySelector("textarea").value'), 'Unsent draft stays intact');
+  // Escape can arrive after the custom panel mounts but before Slack focuses its search box.
+  await window.webContents.executeJavaScript('window.fixtureSearchDelay = 300');
+  input('keyDown', 'K', [modifier]); input('keyUp', 'K', [modifier]); await release();
+  assert.ok(await checkOverlay());
+  assert.equal(await window.webContents.executeJavaScript('!!document.querySelector("#native-search-fixture")'), false);
+  input('keyDown', 'Escape'); input('keyUp', 'Escape');
+  await delay(50); await runtime.painted();
+  assert.equal(await checkOverlay(), null, 'Escape during search startup must dismiss the panel');
+  await delay(350);
+  assert.equal(await window.webContents.executeJavaScript('!!document.querySelector("#native-search-fixture")'), false, 'A delayed native search must not reopen the cancelled panel');
+  // After cancellation the next tap must work, including Escape with a nonempty query.
+  input('keyDown', 'K', [modifier]); input('keyUp', 'K', [modifier]); await release();
+  window.webContents.insertText('ale'); await delay(100);
+  assert.equal((await checkOverlay()).selected, 'Alex Morgan');
+  const navigationCount = navigations.length;
+  input('keyDown', 'Escape'); input('keyUp', 'Escape'); await delay(100);
+  assert.equal(await checkOverlay(), null);
+  assert.equal(await window.webContents.executeJavaScript('!!document.querySelector("#native-search-fixture")'), false);
+  assert.equal(navigations.length, navigationCount, 'Escape never opens the selected result');
   runtime.flush();
-  console.log('PASS: Electron integration: hold/cycle/release, custom search panel, hidden native panel, recent/channel/person/file suggestions, forward/reverse selection, Enter, cleanup and draft preservation.');
+  console.log('PASS: Electron integration: hold/cycle/release, custom search panel, hidden native panel, recent/channel/person/file suggestions, forward/reverse selection, Enter, Escape during startup and after focus loss, reopening, cleanup and draft preservation.');
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });
 setTimeout(() => { console.error('Electron test timed out'); app.exit(1); }, 45000).unref();

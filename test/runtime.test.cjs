@@ -103,6 +103,17 @@ test('buffered keys are dropped when search closes without becoming ready', t =>
   assert.equal(f.key({ key: 'h', code: 'KeyH', meta: false }), false);
   assert.deepEqual(f.contents.inserted, []);
 });
+test('Escape before search is ready cancels instead of reaching the composer or replaying buffered text', async t => {
+  const f = fixture(t); ['C111', 'D222'].forEach(f.navigate);
+  f.key({}); f.key({ key: 'Meta', code: 'MetaLeft', type: 'keyUp', meta: false });
+  f.key({ key: 'h', code: 'KeyH', meta: false });
+  assert.equal(f.key({ key: 'Escape', code: 'Escape', meta: false }), true);
+  await f.runtime.painted();
+  assert.match(f.contents.scripts.at(-1), /__slackRecentsSearchClose/);
+  f.ipcMain.emit('slack-recents:search-ui', { sender: f.contents }, { type: 'ready' });
+  assert.deepEqual(f.contents.inserted, []);
+  assert.deepEqual(f.links, []);
+});
 test('picking an unread sidebar conversation navigates only for well-formed keys in the current workspace', t => {
   const f = fixture(t); ['C111', 'D222'].forEach(f.navigate);
   f.key({}); f.key({ key: 'Meta', code: 'MetaLeft', type: 'keyUp', meta: false });
