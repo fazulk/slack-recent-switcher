@@ -1,3 +1,5 @@
+export const patchMarker = 'slack-recents-native-v1';
+
 const identifier = '[\\w$]+';
 
 function replaceExactly(source, pattern, replacement, expected, label) {
@@ -37,6 +39,7 @@ export function patchSearch(source) {
   const end = source.indexOf('renderSearchHeaderMegaphoneContainer(){', start);
   if (end < 0) throw new Error('Unsupported Slack search code: blank-state renderer changed.');
   let render = source.slice(start, end);
+  render = replaceExactly(render, /renderBlankSlateSuggestions\(\)\{/g, `renderBlankSlateSuggestions(){void ${JSON.stringify(patchMarker)};`, 1, 'patch marker');
   const recentGroup = render.match(new RegExp(`let (${identifier})=(${identifier})&&${identifier}&&(${identifier})\\.length\\?`));
   const recentHeader = render.match(new RegExp(`label:(${identifier})\\.t\\("Recent places"\\),labelId:${identifier},isFirst:${identifier}&&!(${identifier})`));
   if (!recentGroup || !recentHeader) throw new Error('Unsupported Slack search code: section groups changed.');

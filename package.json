@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A script that puts eight recent places first in Slack's native switcher",
+  "description": "A macOS launcher that keeps eight recents first in Slack's native switcher",
   "license": "MIT",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "start": "node load.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "install-launcher": "node load.mjs --install"
   }
 }

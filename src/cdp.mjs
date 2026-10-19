@@ -29,12 +29,15 @@ export async function connect(url) {
     socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Could not connect to Slack debugging.')); }, { once: true });
   });
   return {
+    get connected() { return socket.readyState === WebSocket.OPEN; },
     send(method, params = {}) {
+      if (socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Slack debugging connection closed.'));
       return new Promise((resolve, reject) => {
         const id = ++nextId;
         const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out.`)); }, 15000);
         pending.set(id, { resolve, reject, timer, method });
-        socket.send(JSON.stringify({ id, method, params }));
+        try { socket.send(JSON.stringify({ id, method, params })); }
+        catch (error) { clearTimeout(timer); pending.delete(id); reject(error); }
       });
     },
     onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
